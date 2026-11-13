@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>com.sener</groupId>
+  <artifactId>building-iot</artifactId>
+  <version>1.0.0</version>
+  <packaging>jar</packaging>
+  <name>Building IoT on GridGain 9.2</name>
+
+  <properties>
+    <maven.compiler.release>21</maven.compiler.release>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <gridgain.version>9.2.0-b1</gridgain.version>
+  </properties>
+
+  <repositories>
+    <repository>
+      <id>gridgain-external</id>
+      <url>https://www.gridgainsystems.com/nexus/content/repositories/external</url>
+    </repository>
+  </repositories>
+
+  <dependencies>
+    <!-- GridGain 9 thin client: SQL, tables, Data Streamer -->
+    <dependency>
+      <groupId>org.gridgain</groupId>
+      <artifactId>ignite-client</artifactId>
+      <version>${gridgain.version}</version>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <finalName>building-iot</finalName>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-shade-plugin</artifactId>
+        <executions>
+          <execution>
+            <phase>package</phase>
+            <goals><goal>shade</goal></goals>
+            <configuration>
+              <createDependencyReducedPom>false</createDependencyReducedPom>
+              <transformers>
+                <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                  <mainClass>com.sener.iot.App</mainClass>
+                </transformer>
+                <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
+              </transformers>
+              <filters>
+                <filter>
+                  <artifact>*:*</artifact>
+                  <excludes>
+                    <exclude>META-INF/*.SF</exclude>
+                    <exclude>META-INF/*.DSA</exclude>
+                    <exclude>META-INF/*.RSA</exclude>
+                  </excludes>
+                </filter>
+              </filters>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+</project>

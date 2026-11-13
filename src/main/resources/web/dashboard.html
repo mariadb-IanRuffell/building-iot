@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Building IoT · Stream Monitor</title>
+<link rel="stylesheet" href="/common.css">
+<style>
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .kpi { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 16px; }
+  .kpi .l { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .07em; }
+  .kpi .v { font-size: 28px; font-weight: 650; margin-top: 2px; }
+  .kpi .v small { font-size: 13px; color: var(--muted); font-weight: 400; margin-left: 4px; }
+  .grid2 { display: grid; grid-template-columns: 1fr; gap: 16px; margin-bottom: 16px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; border-top: 3px solid var(--sc); }
+  .card .hd { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .card .hd b { font-size: 15px; }
+  .card .rate { font-size: 30px; font-weight: 650; margin: 6px 0 0; }
+  .card .rate small { font-size: 13px; color: var(--muted); font-weight: 400; margin-left: 4px; }
+  .card .meta { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 12px; color: var(--muted); font-size: 12.5px; margin-top: 6px; }
+  .card .meta b { color: var(--text); font-weight: 600; }
+  .card .foot { margin-top: 8px; display: flex; justify-content: space-between; align-items: center; }
+  .card .foot button { font-size: 12px; padding: 3px 9px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 10px; }
+  .legend label { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); cursor: pointer; user-select: none; }
+  .legend input { accent-color: var(--accent); }
+  .legend i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+  .tools { display: flex; gap: 8px; align-items: center; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; padding: 6px 10px; border-bottom: 1px solid var(--line); }
+  td { padding: 6px 10px; border-bottom: 1px solid rgba(38,56,90,.5); }
+  tbody tr { cursor: pointer; }
+  tbody tr:hover { background: var(--panel2); }
+  td.r, th.r { text-align: right; }
+  .tbl-wrap { max-height: 460px; overflow: auto; }
+  .two { display: grid; grid-template-columns: 1.2fr 1fr; gap: 16px; }
+  @media (max-width: 1000px) { .two { grid-template-columns: 1fr; } }
+  pre { background: #070c14; border: 1px solid var(--line); border-radius: 8px; padding: 12px; overflow: auto; font-size: 12.5px; margin: 8px 0 0; color: #c8d6ee; }
+  .kv { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; font-size: 13px; }
+  .kv span:nth-child(odd) { color: var(--muted); }
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>Building IoT <small>Stream monitor</small></h1>
+  <nav><a class="active" href="/">Dashboard</a><a href="/building">Building overview</a></nav>
+  <span class="spacer"></span>
+  <span class="chip"><span id="conn" class="dot"></span><span id="clusterTxt">connecting…</span></span>
+  <span class="chip" id="simTime">—</span>
+</header>
+
+<main>
+  <div class="kpis">
+    <div class="kpi"><div class="l">Receive rate</div><div class="v num"><span id="kRate">—</span><small>msg/s</small></div></div>
+    <div class="kpi"><div class="l">Messages received</div><div class="v num" id="kTotal">—</div></div>
+    <div class="kpi"><div class="l">Rejected</div><div class="v num" id="kRej">—</div></div>
+    <div class="kpi"><div class="l">Sensors reporting</div><div class="v num"><span id="kFresh">—</span><small id="kSensors"></small></div></div>
+    <div class="kpi"><div class="l">Rows in GridGain</div><div class="v num" id="kRows">—</div></div>
+    <div class="kpi"><div class="l">Streamer backlog</div><div class="v num"><span id="kLag">—</span><small>items</small></div></div>
+  </div>
+
+  <div class="grid2">
+    <section class="panel">
+      <h2><span class="grow">Receive rate by stream — last 2 minutes</span><span class="chip">msg/s</span></h2>
+      <div class="chart-wrap" id="rateChart"></div>
+      <div class="legend" id="legend"></div>
+    </section>
+  </div>
+
+  <div class="cards" id="cards"></div>
+
+  <div class="two">
+    <section class="panel">
+      <h2><span class="grow">Sensors</span>
+        <span class="tools"><input id="q" type="search" placeholder="Filter sensors…" aria-label="Filter sensors">
+        <button id="onlyBad" aria-pressed="false">Problems only</button></span></h2>
+      <div class="tbl-wrap"><table><thead><tr><th></th><th>Sensor</th><th>Stream</th><th>Location</th><th>Last value</th><th class="r">Age</th><th class="r">Msgs</th></tr></thead><tbody id="rows"></tbody></table></div>
+    </section>
+    <div style="display:grid;gap:16px;align-content:start">
+      <section class="panel">
+        <h2>GridGain 9.2 cluster</h2>
+        <div class="kv" id="gg"></div>
+      </section>
+      <section class="panel">
+        <h2>Send your own data</h2>
+        <div style="color:var(--muted);font-size:13px">Any gateway can POST one reading or an array of readings:</div>
+<pre>curl -X POST http://localhost:8080/api/ingest \
+  -H 'Content-Type: application/json' \
+  -d '[{"sensorId":"TEMP-F2-W","value":23.4},
+       {"sensorId":"OUT-TEMP","value":7.9,"ts":"2026-11-13T09:30:00Z"}]'</pre>
+        <div style="color:var(--muted);font-size:12.5px;margin-top:8px">Readings flow HTTP → validate → GridGain Data Streamer → <code>SENSOR_READING</code> / <code>SENSOR_LATEST</code> tables. Click any sensor row to chart its stored history.</div>
+      </section>
+    </div>
+  </div>
+</main>
+
+<script src="/common.js"></script>
+<script>
+let built = false, hidden = new Set(), onlyBad = false, filter = '';
+const E = {};
+
+function build(d) {
+  $('#cards').innerHTML = d.streams.map(s => `
+    <div class="card" style="--sc:${SC[s.type]}" data-t="${s.type}">
+      <div class="hd"><b>${s.label}</b><span class="pill" data-r="pill"></span></div>
+      <div class="rate num"><span data-r="rate">0</span><small>msg/s</small></div>
+      <div data-r="spark" style="height:36px;margin-top:4px"></div>
+      <div class="meta"><span>Sensors <b data-r="sens"></b></span><span>Last msg <b data-r="age"></b></span>
+        <span>Total <b data-r="total"></b></span><span>Rejected <b data-r="rej"></b></span></div>
+      <div class="foot"><span style="color:var(--muted);font-size:12px">60s avg <b class="num" style="color:var(--text)" data-r="r10"></b>/s</span>
+        <button data-outage="${s.type}" title="Silence this stream for 30 s to see how the dashboard reacts">Simulate outage</button></div>
+    </div>`).join('');
+  $$('.card').forEach(c => { E[c.dataset.t] = Object.fromEntries($$('[data-r]', c).map(x => [x.dataset.r, x])); });
+  $('#cards').addEventListener('click', e => {
+    const b = e.target.closest('[data-outage]'); if (!b) return;
+    fetch(`/api/sim/outage?target=${b.dataset.outage}&seconds=30`, { method: 'POST' }); b.textContent = 'Outage started…';
+    setTimeout(() => b.textContent = 'Simulate outage', 3000);
+  });
+  $('#legend').innerHTML = d.streams.map(s => `<label><input type="checkbox" checked data-leg="${s.type}"><i style="background:${SC[s.type]}"></i>${s.label}</label>`).join('');
+  $('#legend').addEventListener('change', e => { const t = e.target.dataset.leg; e.target.checked ? hidden.delete(t) : hidden.add(t); drawChart(Live.last); });
+
+  $('#rows').innerHTML = d.sensorList.map(s => `<tr data-id="${s.id}" data-name="${s.name}" data-search="${(s.id + ' ' + s.name + ' ' + s.type).toLowerCase()}">
+    <td><span class="dot"></span></td><td>${s.id}</td><td style="color:${SC[s.type]}">${d.streams.find(x => x.type === s.type).label}</td>
+    <td>${s.floor < 0 ? 'Building / outside' : 'Floor ' + floorName(s.floor) + (s.zone ? ' ' + (s.zone === 'W' ? 'West' : 'East') : '')}</td>
+    <td class="num" data-c="v"></td><td class="r num" data-c="age"></td><td class="r num" data-c="n"></td></tr>`).join('');
+  $$('#rows tr').forEach(tr => E['row:' + tr.dataset.id] = { tr, dot: $('.dot', tr), v: $('[data-c=v]', tr), age: $('[data-c=age]', tr), n: $('[data-c=n]', tr) });
+  $('#rows').addEventListener('click', e => { const tr = e.target.closest('tr'); if (tr) History.open(tr.dataset.id, tr.dataset.name); });
+  $('#q').oninput = e => { filter = e.target.value.toLowerCase(); applyFilter(); };
+  $('#onlyBad').onclick = e => { onlyBad = !onlyBad; e.target.classList.toggle('on', onlyBad); e.target.setAttribute('aria-pressed', onlyBad); applyFilter(); };
+  built = true;
+}
+
+function applyFilter() {
+  $$('#rows tr').forEach(tr => {
+    const r = E['row:' + tr.dataset.id];
+    const bad = r.dot.classList.contains('bad') || r.dot.classList.contains('warn');
+    tr.style.display = (tr.dataset.search.includes(filter) && (!onlyBad || bad)) ? '' : 'none';
+  });
+}
+
+function drawChart(d) {
+  const series = d.streams.filter(s => !hidden.has(s.type)).map(s => {
+    const n = s.history.length, W = 5;            // 5-second moving average smooths batch delivery
+    const sm = s.history.map((_, i) => { const a = s.history.slice(Math.max(0, i - W + 1), i + 1); return a.reduce((x, y) => x + y, 0) / a.length; });
+    return { name: s.label, color: SC[s.type], points: sm.map((v, i) => [d.now - (n - 1 - i) * 1000, v]) };
+  });
+  lineChart($('#rateChart'), { series, height: 230, yMin: 0, yFmt: v => fmt(v, 1), stepped: false });
+}
+
+function update(d) {
+  const t = d.totals, c = d.cluster;
+  $('#kRate').textContent = fmt(t.rate10, 1);
+  $('#kTotal').textContent = nf0.format(t.received);
+  $('#kRej').textContent = nf0.format(t.rejected);
+  $('#kRej').style.color = t.rejected > 0 ? 'var(--warn)' : '';
+  $('#kFresh').textContent = t.fresh; $('#kSensors').textContent = '/ ' + t.sensors;
+  $('#kFresh').style.color = t.fresh < t.sensors ? 'var(--warn)' : 'var(--good)';
+  $('#kRows').textContent = c.rows < 0 ? '…' : nf0.format(c.rows);
+  $('#kLag').textContent = nf0.format(c.queueLag);
+
+  d.streams.forEach(s => {
+    const e = E[s.type];
+    e.pill.textContent = s.status.replace('_', ' '); e.pill.className = 'pill ' + s.status;
+    e.rate.textContent = fmt(s.rate10, 1);
+    e.spark.innerHTML = spark(s.history.slice(-60), { color: SC[s.type], min: 0, h: 36 });
+    e.sens.textContent = `${s.fresh} / ${s.sensors}`;
+    e.age.textContent = fmtAge(s.lastAgeMs);
+    e.total.textContent = nf0.format(s.total);
+    e.rej.textContent = nf0.format(s.rejected);
+    e.r10.textContent = fmt(s.rate60, 1);
+  });
+  drawChart(d);
+
+  d.sensorList.forEach(s => {
+    const r = E['row:' + s.id];
+    r.dot.className = 'dot ' + (s.age == null ? '' : s.fresh ? 'good' : 'bad');
+    r.v.textContent = fmtValue(s);
+    r.age.textContent = fmtAge(s.age);
+    r.age.style.color = s.age != null && !s.fresh ? 'var(--bad)' : '';
+    r.n.textContent = nf0.format(s.n);
+  });
+  if (onlyBad || filter) applyFilter();
+
+  $('#gg').innerHTML = [
+    ['Status', c.connected ? '<span style="color:var(--good)">connected</span>' : '<span style="color:var(--bad)">disconnected</span>'],
+    ['Nodes', c.nodes.join(', ') || '—'],
+    ['Data streamers', c.streamers ? '<span style="color:var(--good)">running</span> (SENSOR_READING, SENSOR_LATEST)' : '<span style="color:var(--bad)">stopped</span>'],
+    ['Items submitted', nf0.format(c.submitted)],
+    ['Dropped / restarts', `${c.dropped} / ${c.restarts}`],
+    ['Stored readings', c.rows < 0 ? '…' : nf0.format(c.rows)],
+    ['Uptime', Math.floor(d.uptimeSec / 60) + ' min ' + (d.uptimeSec % 60) + ' s'],
+    ['Last error', c.lastError ? `<span style="color:var(--warn)">${c.lastError}</span>` : 'none']
+  ].map(([a, b]) => `<span>${a}</span><span>${b}</span>`).join('');
+}
+
+Live.on(d => { if (!built) build(d); update(d); });
+bindHeader();
+Live.connect();
+</script>
+</body>
+</html>

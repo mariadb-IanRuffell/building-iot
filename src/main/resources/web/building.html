@@ -1,0 +1,380 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Building IoT · Office overview</title>
+<link rel="stylesheet" href="/common.css">
+<style>
+  .layout { display: grid; grid-template-columns: minmax(0, 1fr) 390px; gap: 16px; align-items: start; }
+  @media (max-width: 1150px) { .layout { grid-template-columns: 1fr; } }
+  .stage { padding: 8px; }
+  #bld { width: 100%; height: auto; display: block; border-radius: 10px; }
+  aside { display: grid; gap: 14px; }
+  .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .tile { background: var(--panel2); border-radius: 10px; padding: 10px 12px; }
+  .tile .l { color: var(--muted); font-size: 11.5px; text-transform: uppercase; letter-spacing: .07em; }
+  .tile .v { font-size: 24px; font-weight: 650; margin-top: 1px; }
+  .tile .v small { font-size: 12px; color: var(--muted); font-weight: 400; margin-left: 3px; }
+  .tr { display: grid; grid-template-columns: 1fr 120px; gap: 4px 12px; align-items: center; padding: 8px 0; border-top: 1px solid rgba(38,56,90,.6); }
+  .tr:first-of-type { border-top: 0; }
+  .tr .nm { color: var(--muted); font-size: 12.5px; }
+  .tr .cur { font-size: 18px; font-weight: 650; }
+  .tr .cur small { font-size: 12px; color: var(--muted); font-weight: 400; margin-left: 3px; }
+  .tr .dl { font-size: 12px; color: var(--muted); }
+  .seg { display: inline-flex; gap: 0; }
+  .seg button { border-radius: 0; padding: 3px 9px; font-size: 12px; }
+  .seg button:first-child { border-radius: 8px 0 0 8px; } .seg button:last-child { border-radius: 0 8px 8px 0; }
+  .alert { padding: 6px 0; font-size: 13px; display: flex; gap: 8px; align-items: baseline; }
+  .alert.warn { color: var(--warn); } .alert.bad { color: var(--bad); } .alert.ok { color: var(--good); }
+  .clickable { cursor: pointer; }
+  .zone:hover .zbg { stroke: var(--accent); }
+  .fan { transform-box: fill-box; transform-origin: center; animation: spin 2s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .bulb { transition: fill .4s, filter .4s; }
+  .lightov { transition: opacity .5s; }
+  .lc { transition: transform .5s linear; }
+  .zbg { transition: fill .8s; stroke: #0a111c; stroke-width: 1; }
+  .legendbar { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 12px; padding: 6px 10px 2px; flex-wrap: wrap; }
+  .legendbar i { display: inline-block; height: 10px; width: 160px; border-radius: 5px; background: linear-gradient(90deg,#2f6fe4,#2a8fa0,#2f7f6a,#4f8a4a,#b8863b,#d1495b); }
+  .hint { color: var(--muted); font-size: 12px; }
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>Building IoT <small>Meridian Tower, live overview</small></h1>
+  <nav><a href="/">Dashboard</a><a class="active" href="/building">Building overview</a></nav>
+  <span class="spacer"></span>
+  <span class="chip"><span id="conn" class="dot"></span><span id="clusterTxt">connecting…</span></span>
+  <span class="chip" id="simTime">—</span>
+</header>
+
+<main>
+  <div class="layout">
+    <section class="panel stage">
+      <svg id="bld" viewBox="0 0 1000 725" role="img" aria-label="Live building overview"></svg>
+      <div class="legendbar"><span>Zone temperature</span><span>17 °C</span><i></i><span>27 °C</span>
+        <span class="hint" style="margin-left:auto">Click a zone, bulb, lift, outside reading or floor label for history &amp; trends</span></div>
+    </section>
+
+    <aside>
+      <section class="panel">
+        <h2>Building now</h2>
+        <div class="tiles">
+          <div class="tile"><div class="l">Outside</div><div class="v num"><span id="tOut">—</span><small>°C</small></div></div>
+          <div class="tile"><div class="l">Avg indoor</div><div class="v num"><span id="tIn">—</span><small>°C</small></div></div>
+          <div class="tile"><div class="l">People</div><div class="v num"><span id="tOcc">—</span></div></div>
+          <div class="tile"><div class="l">Power</div><div class="v num"><span id="tPwr">—</span><small>kW</small></div></div>
+        </div>
+      </section>
+
+      <section class="panel" id="trendPanel">
+        <h2><span class="grow" id="trendTitle">Trends</span>
+          <span class="seg" id="win"><button data-m="10">10m</button><button data-m="30" class="on">30m</button><button data-m="60">60m</button></span></h2>
+        <div id="trends"></div>
+        <button id="clearFloor" style="display:none;margin-top:8px">← Back to whole building</button>
+      </section>
+
+      <section class="panel">
+        <h2>Alerts</h2>
+        <div id="alerts"></div>
+      </section>
+    </aside>
+  </div>
+</main>
+
+<script src="/common.js"></script>
+<script>
+/* ------------------------------------------------------------------ geometry */
+const FL = 6, FH = 88, TOP = 122, BX = 90, BW = 700;
+const ZX = { W: 100, E: 520 }, ZW = 260;
+const LIFT_X = i => 375 + i * 48;
+const CAP = [30, 48, 48, 48, 48, 36];
+const floorTop = f => TOP + (5 - f) * FH;
+const SVGNS = 'http://www.w3.org/2000/svg';
+
+const STOPS = [[17, [47, 111, 228]], [20, [42, 143, 160]], [21.5, [47, 127, 106]], [23, [79, 138, 74]], [24.5, [184, 134, 59]], [27, [209, 73, 91]]];
+function tempColor(t) {
+  if (t == null || Number.isNaN(t)) return '#1c2a40';
+  if (t <= STOPS[0][0]) return `rgb(${STOPS[0][1]})`;
+  for (let i = 1; i < STOPS.length; i++) {
+    if (t <= STOPS[i][0]) {
+      const [a, ca] = STOPS[i - 1], [b, cb] = STOPS[i], k = (t - a) / (b - a);
+      return `rgb(${ca.map((c, j) => Math.round(c + (cb[j] - c) * k))})`;
+    }
+  }
+  return `rgb(${STOPS[STOPS.length - 1][1]})`;
+}
+
+/* ------------------------------------------------------------------ build SVG once */
+const R = {};            // element refs
+function person(x, y) { return `<g transform="translate(${x},${y})"><circle cy="-10" r="3.4"/><rect x="-3.6" y="-6" width="7.2" height="10" rx="3"/></g>`; }
+
+function buildSvg() {
+  let s = `<defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop id="sky0" offset="0" stop-color="#16395c"/><stop id="sky1" offset="1" stop-color="#27567d"/></linearGradient>
+    <filter id="glow" x="-80%" y="-80%" width="260%" height="260%"><feGaussianBlur stdDeviation="3.5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  </defs>
+  <rect x="0" y="0" width="1000" height="${floorTop(0) + FH + 40}" fill="#0b1220"/>
+  <rect id="sky" x="0" y="0" width="1000" height="${TOP - 2}" fill="url(#sky)"/>
+  <g id="stars" fill="#fff" opacity="0">${[[60, 20], [150, 55], [230, 18], [330, 40], [610, 22], [700, 50], [850, 28], [930, 60], [780, 14], [480, 14]].map(p => `<circle cx="${p[0]}" cy="${p[1]}" r="1.3"/>`).join('')}</g>
+  <circle id="sunHalo" r="22" fill="#ffd166" opacity="0" filter="url(#glow)"/>
+  <circle id="sun" r="11" fill="#ffd166"/>
+  <circle id="moon" r="9" fill="#dfe8f5" opacity="0"/>
+  <g id="outG" class="clickable" data-id="OUT-TEMP" data-title="Outside temperature">
+    <text x="22" y="24" font-size="11" fill="#b8cae6" letter-spacing="1.5">OUTSIDE</text>
+    <text id="oTemp" x="22" y="58" font-size="32" font-weight="650" fill="#fff">—</text>
+    <text id="oSub" x="22" y="78" font-size="12" fill="#cfe0f7">—</text>
+  </g>
+  <text id="oSim" x="980" y="24" font-size="12" text-anchor="end" fill="#b8cae6">—</text>
+  <text x="980" y="42" font-size="11" text-anchor="end" fill="#b8cae6" opacity=".8"><tspan id="oSolar"></tspan></text>
+
+  <!-- roof plant -->
+  <rect x="${BX + 10}" y="${TOP - 38}" width="${BW - 20}" height="36" rx="5" fill="#16233a" stroke="#26385a"/>
+  <g class="clickable" data-id="PWR-HVAC" data-title="Roof HVAC plant power">
+    <rect x="${BX + 10}" y="${TOP - 38}" width="${BW - 20}" height="36" rx="5" fill="transparent"/>
+    <text x="${BX + 24}" y="${TOP - 16}" font-size="12" fill="#8ea2c0">HVAC PLANT</text>
+    <text id="hvacKw" x="${BX + 118}" y="${TOP - 16}" font-size="15" font-weight="650" fill="#e8eef8">—</text>
+    ${[0, 1, 2].map(i => `<g transform="translate(${BX + 400 + i * 80},${TOP - 20})"><g class="fan" id="fan${i}"><circle r="12" fill="none" stroke="#3a4f73"/><path d="M0 -11 L3 0 L-3 0Z M11 0 L0 3 L0 -3Z M0 11 L-3 0 L3 0Z M-11 0 L0 -3 L0 3Z" fill="#7aa2ff"/></g></g>`).join('')}
+  </g>
+
+  <!-- building shell -->
+  <rect x="${BX}" y="${TOP}" width="${BW}" height="${FL * FH}" fill="#0f1a2c" stroke="#3a4f73" stroke-width="2" rx="4"/>
+  <rect x="${BX - 20}" y="${TOP + FL * FH}" width="${BW + 40}" height="40" fill="#101b2d"/>
+  <rect x="365" y="${TOP}" width="150" height="${FL * FH}" fill="#0a111c"/>
+  <text x="440" y="${TOP + FL * FH + 26}" font-size="11" fill="#8ea2c0" text-anchor="middle" letter-spacing="1.5">LIFT CORE</text>`;
+
+  for (let l = 0; l < 3; l++) {
+    s += `<rect x="${LIFT_X(l) - 3}" y="${TOP}" width="40" height="${FL * FH}" fill="#121d31"/><text x="${LIFT_X(l) + 17}" y="${TOP + FL * FH + 14}" font-size="10" fill="#6b7c99" text-anchor="middle">L${l + 1}</text>`;
+  }
+  for (let f = 0; f < FL; f++) {
+    const top = floorTop(f);
+    s += `<line x1="${BX}" x2="${BX + BW}" y1="${top}" y2="${top}" stroke="#3a4f73"/>`;
+    s += `<g class="clickable fl" data-f="${f}"><rect x="8" y="${top + 6}" width="78" height="${FH - 12}" rx="8" fill="#152033" class="flbg" id="flbg${f}"/>
+      <text x="47" y="${top + 42}" font-size="28" font-weight="700" fill="#e8eef8" text-anchor="middle">${floorName(f)}</text>
+      <text id="rh${f}" x="47" y="${top + 62}" font-size="11" fill="#8ea2c0" text-anchor="middle">RH —</text></g>`;
+    for (const z of ['W', 'E']) {
+      const x = ZX[z], y = top + 4, h = FH - 8;
+      s += `<g class="zone clickable" data-id="TEMP-F${f}-${z}" data-title="Floor ${floorName(f)} ${z === 'W' ? 'West' : 'East'} temperature">
+        <rect class="zbg" id="zbg${f}${z}" x="${x}" y="${y}" width="${ZW}" height="${h}" rx="6" fill="#1c2a40" opacity=".9"/>
+        <rect class="lightov" id="zl${f}${z}" x="${x}" y="${y}" width="${ZW}" height="${h}" rx="6" fill="#ffd166" opacity="0" pointer-events="none"/>
+        <text id="zt${f}${z}" x="${x + 14}" y="${y + 33}" font-size="25" font-weight="650" fill="#fff">—</text>
+        <text x="${x + 14}" y="${y + 50}" font-size="11" fill="#d7e3f6" opacity=".75">${z === 'W' ? 'West' : 'East'} zone</text>
+        <g id="zp${f}${z}" fill="#e3d6ff" opacity=".95">${Array.from({ length: 10 }, (_, k) => person(x + 22 + k * 24, y + h - 12)).join('')}</g>
+      </g>
+      <g class="clickable lampg" data-id="LIGHT-F${f}-${z}" data-title="Floor ${floorName(f)} ${z === 'W' ? 'West' : 'East'} lights">
+        <circle class="bulb" id="zb${f}${z}" cx="${x + ZW - 28}" cy="${y + 26}" r="10" fill="#33425e"/>
+        <rect x="${x + ZW - 33}" y="${y + 37}" width="10" height="5" rx="1.5" fill="#6b7c99"/>
+        <text id="zbt${f}${z}" x="${x + ZW - 28}" y="${y + 57}" font-size="10" text-anchor="middle" fill="#d7e3f6" opacity=".8">OFF</text>
+      </g>`;
+    }
+    // per-floor info column
+    const ix = BX + BW + 14;
+    s += `<g class="clickable" data-id="OCC-F${f}" data-title="Floor ${floorName(f)} occupancy">
+      <text x="${ix}" y="${top + 22}" font-size="11" fill="#8ea2c0">PEOPLE</text><text id="oc${f}" x="${ix + 178}" y="${top + 22}" font-size="13" font-weight="650" fill="#e8eef8" text-anchor="end">—</text>
+      <rect x="${ix}" y="${top + 27}" width="178" height="5" rx="2.5" fill="#1c2a40"/><rect id="ocb${f}" x="${ix}" y="${top + 27}" width="0" height="5" rx="2.5" fill="#b794f6"/></g>
+      <g class="clickable" data-id="CO2-F${f}" data-title="Floor ${floorName(f)} CO2">
+      <text x="${ix}" y="${top + 49}" font-size="11" fill="#8ea2c0">CO₂</text><text id="co${f}" x="${ix + 178}" y="${top + 49}" font-size="13" font-weight="650" fill="#e8eef8" text-anchor="end">—</text>
+      <rect x="${ix}" y="${top + 54}" width="178" height="5" rx="2.5" fill="#1c2a40"/><rect id="cob${f}" x="${ix}" y="${top + 54}" width="0" height="5" rx="2.5" fill="#3ddc97"/></g>
+      <g class="clickable" data-id="PWR-F${f}" data-title="Floor ${floorName(f)} power">
+      <text x="${ix}" y="${top + 76}" font-size="11" fill="#8ea2c0">POWER</text><text id="pw${f}" x="${ix + 178}" y="${top + 76}" font-size="13" font-weight="650" fill="#e8eef8" text-anchor="end">—</text>
+      <rect x="${ix}" y="${top + 81}" width="178" height="0" fill="none"/></g>`;
+  }
+  // lifts (drawn last so they overlay)
+  for (let l = 0; l < 3; l++) {
+    s += `<line id="cab${l}" x1="${LIFT_X(l) + 17}" x2="${LIFT_X(l) + 17}" y1="${TOP}" y2="${TOP + 20}" stroke="#3a4f73" stroke-width="1.5"/>
+    <g class="lc clickable" id="lc${l}" data-id="LIFT-${l + 1}" data-title="Lift ${l + 1} position" style="transform:translate(${LIFT_X(l)}px,${floorTop(0) + 17}px)">
+      <rect id="lcr${l}" width="34" height="54" rx="4" fill="#4b5d7c" stroke="#0a111c"/>
+      <rect id="ldl${l}" x="3" y="16" width="14" height="35" fill="#0a111c" opacity=".75"/><rect id="ldr${l}" x="17" y="16" width="14" height="35" fill="#0a111c" opacity=".75"/>
+      <text id="la${l}" x="17" y="12" font-size="11" text-anchor="middle" fill="#fff">■</text>
+      <text id="ln${l}" x="17" y="40" font-size="13" font-weight="700" text-anchor="middle" fill="#fff" pointer-events="none"></text>
+    </g>`;
+  }
+  s += `<rect x="0" y="${TOP + FL * FH}" width="1000" height="40" fill="none"/>`;
+  $('#bld').innerHTML = s;
+  $$('#bld [id]').forEach(e => R[e.id] = e);
+}
+
+/* ------------------------------------------------------------------ live updates */
+let lastData = null;
+function S(d, id) { return d._m[id]; }
+
+function update(d) {
+  d._m = Object.fromEntries(d.sensorList.map(s => [s.id, s]));
+  lastData = d;
+  const h = d.sim.hour;
+
+  // sky, sun and moon
+  const day = h >= 6 && h <= 18;
+  const p = day ? (h - 6) / 12 : ((h + (h < 6 ? 24 : 0)) - 18) / 12;
+  const sx = 120 + p * 760, sy = 96 - 64 * Math.sin(Math.PI * Math.min(1, Math.max(0, p)));
+  const solar = S(d, 'OUT-SOLAR')?.v ?? 0;
+  R.sun.setAttribute('cx', sx); R.sun.setAttribute('cy', sy); R.sun.style.opacity = day ? 1 : 0;
+  R.sunHalo.setAttribute('cx', sx); R.sunHalo.setAttribute('cy', sy); R.sunHalo.setAttribute('r', 14 + solar / 30); R.sunHalo.style.opacity = day ? Math.min(.7, solar / 700 + .1) : 0;
+  R.moon.setAttribute('cx', sx); R.moon.setAttribute('cy', sy); R.moon.style.opacity = day ? 0 : 1;
+  R.stars.style.opacity = day ? 0 : .8;
+  const dusk = Math.max(0, 1 - Math.abs(h - 12) / 6.5);          // 0 at night .. 1 at noon
+  R.sky0.setAttribute('stop-color', mix([10, 16, 32], [22, 76, 124], dusk));
+  R.sky1.setAttribute('stop-color', mix([16, 28, 52], [86, 150, 196], dusk));
+
+  const ot = S(d, 'OUT-TEMP'), oh = S(d, 'OUT-HUM'), ow = S(d, 'OUT-WIND');
+  R.oTemp.textContent = ot?.v == null ? '—' : fmt(ot.v, 1) + ' °C';
+  R.oSub.textContent = `RH ${fmt(oh?.v, 0)}% · Wind ${fmt(ow?.v, 1)} m/s`;
+  R.oSim.textContent = `Sim day ${d.sim.day} · ${d.sim.time}`;
+  R.oSolar.textContent = `Solar ${fmt(solar, 0)} W/m²`;
+
+  const hv = S(d, 'PWR-HVAC');
+  R.hvacKw.textContent = hv?.v == null ? '—' : fmt(hv.v, 1) + ' kW';
+  [0, 1, 2].forEach(i => R['fan' + i].style.animationDuration = Math.max(0.35, 3.2 - (hv?.v ?? 0) / 8) + 's');
+
+  let tSum = 0, tN = 0, occ = 0, pwr = 0;
+  for (let f = 0; f < FL; f++) {
+    const hm = S(d, 'HUM-F' + f), oc = S(d, 'OCC-F' + f), co = S(d, 'CO2-F' + f), pw = S(d, 'PWR-F' + f);
+    R['rh' + f].textContent = 'RH ' + fmt(hm?.v, 0) + '%';
+    const nPeople = oc?.v ?? 0;
+    for (const [zi, z] of ['W', 'E'].entries()) {
+      const t = S(d, `TEMP-F${f}-${z}`), l = S(d, `LIGHT-F${f}-${z}`);
+      const ok = t?.fresh && t.v != null;
+      R[`zbg${f}${z}`].setAttribute('fill', ok ? tempColor(t.v) : '#1c2a40');
+      R[`zbg${f}${z}`].setAttribute('opacity', ok ? .88 : .5);
+      R[`zt${f}${z}`].textContent = t?.v == null ? '—' : fmt(t.v, 1) + '°';
+      R[`zt${f}${z}`].setAttribute('opacity', ok ? 1 : .4);
+      if (ok) { tSum += t.v; tN++; }
+      const on = l?.v >= .5;
+      R[`zl${f}${z}`].style.opacity = on ? .22 : 0;
+      const b = R[`zb${f}${z}`]; b.setAttribute('fill', on ? '#ffd166' : '#33425e'); b.style.filter = on ? 'drop-shadow(0 0 7px #ffd166)' : 'none';
+      R[`zbt${f}${z}`].textContent = l?.fresh === false ? 'no data' : on ? 'ON' : 'OFF';
+      const shown = Math.min(10, Math.ceil(nPeople / 2 / 2.4));
+      [...R[`zp${f}${z}`].children].forEach((g, k) => g.style.display = k < shown ? '' : 'none');
+    }
+    R['oc' + f].textContent = oc?.v == null ? '—' : `${fmt(oc.v, 0)} / ${CAP[f]}`;
+    R['ocb' + f].setAttribute('width', Math.min(1, (oc?.v ?? 0) / CAP[f]) * 178);
+    if (oc?.v != null) occ += oc.v;
+    R['co' + f].textContent = co?.v == null ? '—' : fmt(co.v, 0) + ' ppm';
+    R['cob' + f].setAttribute('width', Math.max(0, Math.min(1, ((co?.v ?? 400) - 400) / 800)) * 178);
+    R['cob' + f].setAttribute('fill', (co?.v ?? 0) > 1000 ? '#ff5d6c' : (co?.v ?? 0) > 800 ? '#ffb84d' : '#3ddc97');
+    R['pw' + f].textContent = pw?.v == null ? '—' : fmt(pw.v, 1) + ' kW';
+    if (pw?.v != null) pwr += pw.v;
+  }
+  if (hv?.v != null) pwr += hv.v;
+
+  // lifts
+  let moving = 0;
+  for (let l = 0; l < 3; l++) {
+    const s = S(d, 'LIFT-' + (l + 1)); if (!s) continue;
+    const a = parseAttr(s.attr), fl = Math.max(0, Math.min(5, s.v ?? 0));
+    const y = floorTop(0) + 17 - fl * FH;
+    R['lc' + l].style.transform = `translate(${LIFT_X(l)}px,${y}px)`;
+    R['cab' + l].setAttribute('y2', y);
+    const stale = !s.fresh, open = a.door === 'OPEN', mv = a.dir === 'UP' || a.dir === 'DOWN';
+    if (mv) moving++;
+    R['lcr' + l].setAttribute('fill', stale ? '#2a3547' : open ? '#2f9d73' : mv ? '#4a78d8' : '#4b5d7c');
+    R['la' + l].textContent = stale ? '?' : a.dir === 'UP' ? '▲' : a.dir === 'DOWN' ? '▼' : '■';
+    R['ln' + l].textContent = stale ? '' : (a.load ?? '');
+    R['ldl' + l].setAttribute('width', open ? 3 : 14); R['ldr' + l].setAttribute('width', open ? 3 : 14); R['ldr' + l].setAttribute('x', open ? 28 : 17);
+  }
+
+  // tiles
+  $('#tOut').textContent = fmt(ot?.v, 1);
+  $('#tIn').textContent = tN ? fmt(tSum / tN, 1) : '—';
+  $('#tOcc').textContent = nf0.format(occ);
+  $('#tPwr').textContent = fmt(pwr, 1);
+
+  // alerts
+  const al = [];
+  d.sensorList.filter(s => s.age != null && !s.fresh).forEach(s => al.push(['bad', `${s.id} silent for ${fmtAge(s.age).replace(' ago', '')}`]));
+  d.sensorList.filter(s => s.type === 'AIR_QUALITY' && s.v > 1000).forEach(s => al.push(['warn', `High CO₂ on floor ${floorName(s.floor)}: ${nf0.format(s.v)} ppm`]));
+  d.sensorList.filter(s => s.type === 'TEMPERATURE' && s.fresh && (s.v < 19 || s.v > 25.5)).forEach(s => al.push(['warn', `${s.name} out of comfort band: ${fmt(s.v, 1)} °C`]));
+  const el = $('#alerts');
+  const html = al.length ? al.slice(0, 8).map(([c, t]) => `<div class="alert ${c}">${c === 'bad' ? '●' : '▲'} ${t}</div>`).join('') + (al.length > 8 ? `<div class="hint">+${al.length - 8} more</div>` : '')
+    : '<div class="alert ok">✓ All sensors reporting, all zones within comfort band</div>';
+  if (el.innerHTML !== html) el.innerHTML = html;
+}
+function mix(a, b, k) { return `rgb(${a.map((c, i) => Math.round(c + (b[i] - c) * k))})`; }
+
+/* ------------------------------------------------------------------ trends */
+let sel = null;          // selected floor or null
+let minutes = 30;
+let trendData = null;
+
+const agg = (series, prefix, fn) => {
+  const arrs = Object.entries(series).filter(([k]) => k.startsWith(prefix)).map(e => e[1]);
+  if (!arrs.length) return [];
+  return arrs[0].map((_, i) => { const v = arrs.map(a => a[i]).filter(x => x != null); return v.length ? fn(v) : null; });
+};
+const sum = v => v.reduce((a, b) => a + b, 0), mean = v => sum(v) / v.length, max = v => Math.max(...v);
+
+function trendDefs(series) {
+  if (sel == null) return [
+    { nm: 'Outside temperature', u: '°C', c: SC.WEATHER, d: 1, v: series['OUT-TEMP'], id: 'OUT-TEMP' },
+    { nm: 'Average indoor temperature', u: '°C', c: SC.TEMPERATURE, d: 1, v: agg(series, 'TEMP-', mean) },
+    { nm: 'People in building', u: '', c: SC.OCCUPANCY, d: 0, v: agg(series, 'OCC-', sum) },
+    { nm: 'Total power', u: 'kW', c: SC.POWER, d: 1, v: agg(series, 'PWR-', sum) },
+    { nm: 'Highest CO₂', u: 'ppm', c: SC.AIR_QUALITY, d: 0, v: agg(series, 'CO2-', max) },
+    { nm: 'Solar irradiance', u: 'W/m²', c: '#ffd166', d: 0, v: series['OUT-SOLAR'], id: 'OUT-SOLAR' }];
+  const f = sel;
+  return [
+    { nm: 'Temperature West', u: '°C', c: SC.TEMPERATURE, d: 1, v: series[`TEMP-F${f}-W`], id: `TEMP-F${f}-W` },
+    { nm: 'Temperature East', u: '°C', c: '#ffb38f', d: 1, v: series[`TEMP-F${f}-E`], id: `TEMP-F${f}-E` },
+    { nm: 'People', u: '', c: SC.OCCUPANCY, d: 0, v: series['OCC-F' + f], id: 'OCC-F' + f },
+    { nm: 'CO₂', u: 'ppm', c: SC.AIR_QUALITY, d: 0, v: series['CO2-F' + f], id: 'CO2-F' + f },
+    { nm: 'Humidity', u: '%RH', c: SC.HUMIDITY, d: 0, v: series['HUM-F' + f], id: 'HUM-F' + f },
+    { nm: 'Power', u: 'kW', c: SC.POWER, d: 1, v: series['PWR-F' + f], id: 'PWR-F' + f }];
+}
+
+function renderTrends() {
+  if (!trendData) return;
+  const defs = trendDefs(trendData.series);
+  $('#trendTitle').textContent = sel == null ? 'Building trends' : `Floor ${floorName(sel)} trends`;
+  $('#clearFloor').style.display = sel == null ? 'none' : '';
+  $('#trends').innerHTML = defs.map((t, i) => {
+    const v = t.v || [];
+    let last = null, li = -1;
+    for (let k = v.length - 1; k >= 0; k--) if (v[k] != null) { last = v[k]; li = k; break; }
+    let delta = '';
+    if (last != null) {
+      const ref = v[Math.max(0, li - Math.min(60, li))] ?? v.find(x => x != null);
+      const dv = last - ref, tiny = Math.abs(dv) < Math.pow(10, -t.d) / 2;
+      delta = tiny ? '● steady' : `${dv > 0 ? '▲' : '▼'} ${dv > 0 ? '+' : ''}${fmt(dv, t.d)} ${t.u}`;
+    }
+    return `<div class="tr ${t.id ? 'clickable' : ''}" ${t.id ? `data-id="${t.id}" data-title="${t.nm}"` : ''}>
+      <div><div class="nm">${t.nm}</div><div class="cur num">${last == null ? '—' : fmt(last, t.d)}<small>${t.u}</small></div><div class="dl num">${delta}</div></div>
+      <div>${spark(v, { color: t.c, h: 46, w: 120 })}</div></div>`;
+  }).join('');
+}
+
+async function loadTrends() {
+  try {
+    const ids = sel == null ? 'OUT-TEMP,OUT-SOLAR,TEMP-*,OCC-*,CO2-*,PWR-*' : `TEMP-F${sel}-W,TEMP-F${sel}-E,OCC-F${sel},CO2-F${sel},HUM-F${sel},PWR-F${sel}`;
+    const r = await (await fetch(`/api/trends?minutes=${minutes}&ids=${ids}`)).json();
+    trendData = r; renderTrends();
+  } catch (e) { /* retry on next tick */ }
+}
+
+function selectFloor(f) {
+  sel = f;
+  $$('.flbg').forEach(e => e.setAttribute('stroke', '')); $$('.flbg').forEach(e => e.setAttribute('fill', '#152033'));
+  if (f != null) { R['flbg' + f].setAttribute('fill', '#24467a'); R['flbg' + f].setAttribute('stroke', '#4cc9f0'); }
+  trendData = null; loadTrends();
+}
+
+/* ------------------------------------------------------------------ wiring */
+buildSvg();
+$('#bld').addEventListener('click', e => {
+  const fl = e.target.closest('.fl');
+  if (fl) { const f = +fl.dataset.f; selectFloor(sel === f ? null : f); return; }
+  const g = e.target.closest('[data-id]'); if (g) History.open(g.dataset.id, g.dataset.title);
+});
+$('#trends').addEventListener('click', e => { const g = e.target.closest('[data-id]'); if (g) History.open(g.dataset.id, g.dataset.title); });
+$('#clearFloor').onclick = () => selectFloor(null);
+$('#win').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  minutes = +b.dataset.m; $$('#win button').forEach(x => x.classList.toggle('on', x === b)); loadTrends();
+});
+Live.on(update);
+bindHeader();
+Live.connect();
+loadTrends(); setInterval(loadTrends, 5000);
+</script>
+</body>
+</html>
