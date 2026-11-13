@@ -45,7 +45,7 @@ public final class Monitor implements AutoCloseable {
             nodes = store.connectedNodes();
             connected = !nodes.isEmpty();
         }), 0, 15, TimeUnit.SECONDS);
-        ses.scheduleAtFixedRate(() -> guard(() -> store.purgeHotOlderThan(Instant.now().minusSeconds(cfg.retentionHours() * 3600L))),
+        ses.scheduleAtFixedRate(() -> guard(() -> store.purgeHotOlderThan(Instant.now().minusSeconds(cfg.retentionSeconds()))),
                 60, 60, TimeUnit.SECONDS);
         ses.scheduleAtFixedRate(() -> guard(() -> diskRows = store.diskRowCount()), 0, 60, TimeUnit.SECONDS);
         // cheap liveness check for the cluster connection
@@ -101,6 +101,7 @@ public final class Monitor implements AutoCloseable {
         cl.put("rows", rows);
         cl.put("diskRows", diskRows);
         cl.put("retentionHours", cfg.retentionHours());
+        cl.put("retentionSeconds", cfg.retentionSeconds());
         cl.put("streamers", store.streamersRunning());
         cl.put("queueLag", store.queueLag());
         cl.put("submitted", store.submitted.get());

@@ -189,7 +189,7 @@ function update(d) {
     ['Data streamers', c.streamers ? '<span style="color:var(--good)">running</span> (memory + disk + latest)' : '<span style="color:var(--bad)">stopped</span>'],
     ['Items submitted', nf0.format(c.submitted)],
     ['Dropped / restarts', `${c.dropped} / ${c.restarts}`],
-    ['In memory (last ' + c.retentionHours + ' h)', c.rows < 0 ? '…' : nf0.format(c.rows)],
+    ['In memory (last ' + c.retentionHours + ' sim-h = ' + (c.retentionSeconds >= 3600 ? (c.retentionSeconds / 3600).toFixed(1) + ' h' : Math.round(c.retentionSeconds / 60) + ' min') + ' real)', c.rows < 0 ? '…' : nf0.format(c.rows)],
     ['On disk (all history)', c.diskRows < 0 ? '…' : nf0.format(c.diskRows)],
     ['Uptime', Math.floor(d.uptimeSec / 60) + ' min ' + (d.uptimeSec % 60) + ' s'],
     ['Last error', c.lastError ? `<span style="color:var(--warn)">${c.lastError}</span>` : 'none']

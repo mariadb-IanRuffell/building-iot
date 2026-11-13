@@ -32,7 +32,7 @@ with `scripts/run.sh` - both use port 8080 (`HTTP_PORT` changes the host port).
  sensors / gateways ──HTTP POST /api/ingest──►  IngestPipeline ──► live cache + trend ring + rate counters
  (embedded simulator                                │
   posts the same way)                               └─► GridGain Data Streamer (3 long-lived streamers)
-                                                          ├─ SENSOR_READING_HOT  last 24 h        (memory)
+                                                          ├─ SENSOR_READING_HOT  last 24 sim-hours (memory)
                                                           ├─ SENSOR_READING      all history      (disk)
                                                           └─ SENSOR_LATEST       last value/sensor
  browser ◄── SSE /api/live (1 Hz) ── Monitor        SQL ◄── /api/history  (history popups)
@@ -46,16 +46,16 @@ GridGain objects (created on start-up by `GridGainStore.createSchema()` with SQL
 | zone `IOT_ZONE` (disk, `default` profile) | reference data, latest values, full history; 16 partitions, 3 replicas via `run.sh` (`GG_PARTITIONS`, `GG_REPLICAS`; the app also ALTERs existing zones to match) |
 | zone `IOT_MEM_ZONE` (memory, `aimem_hot` profile) | the hot tier; same partitions/replicas |
 | `SENSOR` | sensor registry |
-| `SENSOR_READING_HOT (SENSOR_ID, TS, VAL, ATTR)` | **last 24 h, in memory.** Serves the advisor, trend seeding and history popups up to 24 h |
+| `SENSOR_READING_HOT (SENSOR_ID, TS, VAL, ATTR)` | **last 24 simulated hours, in memory** (20 real min at the default compressed day). Serves the advisor, trend seeding and history popups for ranges within the retention window (15 m by default; longer ranges come from disk) |
 | `SENSOR_READING (SENSOR_ID, TS, VAL, ATTR)` | **all history, on disk, never purged.** Serves history popups beyond 24 h (3 d / 7 d), aggregated per minute/hour inside GridGain |
 | `SENSOR_LATEST` | latest value per sensor |
 | `INGEST_STATS` | per-stream receive rate persisted every 10 s |
 
 Both reading tables are colocated by `SENSOR_ID` with sorted `(SENSOR_ID, TS)` indexes, and each reading is written to
-both through its own Data Streamer. **Retention:** `RETENTION_HOURS` (default 24) applies to the in-memory table only - older
+both through its own Data Streamer. **Retention:** `RETENTION_HOURS` (default 24) is measured in *simulated* time while the simulator runs, i.e. scaled by `SIM_DAY_MINUTES`/1440 (real time when `SIM_ENABLED=false`). It applies to the in-memory table only - older
 rows are deleted from memory every minute and stay on disk. If memory is lost (all nodes restarted) the app refills the
 hot table from disk on start-up. The memory tier needs a storage profile on every node; `start-cluster.sh` configures
-`aimem_hot` (`GG_MEM_BYTES`, default 1 GiB per node; ~24 h at the default ~25 msg/s needs roughly 0.4-0.5 GiB per node with 3 replicas).
+`aimem_hot` (`GG_MEM_BYTES`, default 1 GiB per node; the compressed 24 h is only ~30k rows, so memory is no concern; with `SIM_DAY_MINUTES=1440` it is ~2.2 M rows, roughly 0.4-0.5 GiB per node with 3 replicas).
 
 ## Efficiency advisor
 
@@ -92,7 +92,7 @@ To run the simulator as a separate process (a stand-in for real gateways): `java
 | `SIM_ENABLED` / `SIM_MODE` | `true` / `http` | `direct` bypasses HTTP and calls the pipeline |
 | `SIM_SCALE` | `1.0` | message-rate multiplier (≈22 msg/s at 1.0; try 20 for load) |
 | `SIM_DAY_MINUTES` | `20` | real minutes per simulated day |
-| `RETENTION_HOURS` | `24` | hours kept in the in-memory tier (disk keeps everything) |
+| `RETENTION_HOURS` | `24` | simulated hours kept in the in-memory tier (real hours if the simulator is off; disk keeps everything) |
 
 Demo helper: the **Simulate outage** button on each stream card (or `POST /api/sim/outage?target=LIFT&seconds=30`)
 silences a stream so you can watch it go Degraded/Down and recover. The simulator also randomly silences single

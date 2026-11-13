@@ -63,7 +63,7 @@ public final class GridGainStore implements AutoCloseable {
 
     public GridGainStore(Config cfg) {
         this.cfg = cfg;
-        this.retentionMinutes = cfg.retentionHours() * 60L;
+        this.retentionMinutes = (cfg.retentionSeconds() + 59) / 60;
         this.client = IgniteClient.builder()
                 .addresses(cfg.addresses().toArray(new String[0]))
                 .connectTimeout(5_000)

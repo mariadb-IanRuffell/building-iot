@@ -21,6 +21,12 @@ public record Config(List<String> addresses, int httpPort, boolean simEnabled, b
                 Integer.parseInt(env("GG_REPLICAS", "1")));
     }
 
+    /** Real seconds the in-memory tier keeps: RETENTION_HOURS of *simulated* time while the simulator runs, else real time. */
+    public long retentionSeconds() {
+        double factor = simEnabled ? simDayMinutes / 1440.0 : 1.0;
+        return Math.max(60L, Math.round(retentionHours * 3600.0 * factor));
+    }
+
     private static String env(String k, String d) {
         String v = System.getenv(k);
         return v == null || v.isBlank() ? d : v.trim();
