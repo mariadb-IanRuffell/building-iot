@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Building IoT · Efficiency advisor</title>
+<link rel="stylesheet" href="/common.css">
+<style>
+  .top3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .kpi { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 16px; }
+  .kpi .l { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .07em; }
+  .kpi .v { font-size: 28px; font-weight: 650; margin-top: 2px; }
+  .kpi .v small { font-size: 13px; color: var(--muted); font-weight: 400; margin-left: 4px; }
+  .banner { margin-bottom: 16px; display: grid; gap: 8px; }
+  .banner p { margin: 0; font-size: 15.5px; line-height: 1.55; }
+  .src { display: inline-flex; gap: 6px; align-items: center; font-size: 12px; color: var(--muted); }
+  .items { display: grid; gap: 12px; }
+  .item { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--sev); border-radius: var(--radius); padding: 14px 18px; }
+  .item.high { --sev: var(--bad); } .item.medium { --sev: var(--warn); } .item.low { --sev: var(--accent); } .item.info { --sev: var(--idle); }
+  .item .hd { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+  .item h3 { margin: 0; font-size: 15.5px; }
+  .tag { font-size: 11.5px; padding: 2px 9px; border-radius: 999px; background: var(--panel2); color: var(--muted); border: 1px solid var(--line); }
+  .sv { margin-left: auto; font-weight: 650; color: var(--good); white-space: nowrap; }
+  .item p { margin: 6px 0 0; color: #c9d6ea; }
+  .item .act { color: var(--text); }
+  .item .act b { color: var(--accent); font-weight: 650; }
+  .item .ev { margin-top: 6px; font-size: 12px; color: var(--muted); font-family: ui-monospace, Menlo, monospace; }
+  .item .ai { margin-top: 8px; font-size: 13px; color: #cdb8ff; }
+  .ideas { margin: 8px 0 0; padding-left: 18px; color: #c9d6ea; }
+  .empty { padding: 40px; text-align: center; color: var(--muted); }
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>Building IoT <small>Efficiency advisor</small></h1>
+  <nav><a href="/">Dashboard</a><a href="/building">Building overview</a><a class="active" href="/advisor">Efficiency advisor</a></nav>
+  <span class="spacer"></span>
+  <span class="chip"><span id="conn" class="dot"></span><span id="clusterTxt">connecting…</span></span>
+  <span class="chip" id="simTime">—</span>
+</header>
+<main>
+  <div class="top3">
+    <div class="kpi"><div class="l">Suggestions</div><div class="v num" id="kN">—</div></div>
+    <div class="kpi"><div class="l">Potential saving</div><div class="v num"><span id="kS">—</span><small>kW</small></div></div>
+    <div class="kpi"><div class="l">Of current draw</div><div class="v num"><span id="kP">—</span><small id="kPw"></small></div></div>
+    <div class="kpi"><div class="l">Analysis window</div><div class="v num"><span id="kW">—</span><small>s of GridGain data</small></div></div>
+  </div>
+
+  <section class="panel banner">
+    <h2><span class="grow">Summary</span><span class="src" id="src"></span><button id="refresh">Re-analyse now</button></h2>
+    <p id="summary">Analysing…</p>
+    <div id="aiNote" style="color:var(--muted);font-size:13px"></div>
+    <div id="ideasBox" style="display:none"><b style="font-size:13px">Further ideas</b><ul class="ideas" id="ideas"></ul></div>
+  </section>
+
+  <div class="items" id="items"></div>
+  <p style="color:var(--muted);font-size:12.5px;margin-top:18px">Savings are estimates from the building's power model, not guarantees. Suggestions are advisory only — nothing is changed automatically.</p>
+</main>
+<script src="/common.js"></script>
+<script>
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+function render(a) {
+  const items = a.items || [];
+  $('#kN').textContent = items.length;
+  $('#kS').textContent = fmt(a.totalSavingKw ?? 0, 1);
+  $('#kP').textContent = fmt(a.savingPct ?? 0, 0) + '%'; $('#kPw').textContent = a.currentPowerKw ? `of ${fmt(a.currentPowerKw, 0)} kW` : '';
+  $('#kW').textContent = a.windowSeconds ?? '—';
+  $('#summary').textContent = a.status === 'ok' ? a.summary : 'Collecting data… the first analysis appears about 30 seconds after start-up.';
+  $('#src').textContent = a.source === 'rules+claude' ? `● Claude (${a.aiModel}) ranking on top of rules engine` : '● Rules engine on GridGain SQL aggregates';
+  $('#aiNote').textContent = a.aiNote || '';
+  const ideas = a.ideas || [];
+  $('#ideasBox').style.display = ideas.length ? '' : 'none';
+  $('#ideas').innerHTML = ideas.map(i => `<li>${esc(i)}</li>`).join('');
+  $('#items').innerHTML = items.length ? items.map((it, i) => `
+    <article class="item ${esc(it.severity)}">
+      <div class="hd"><h3>${it.rank ? it.rank + '. ' : ''}${esc(it.title)}</h3><span class="tag">${esc(it.area)}</span><span class="tag">${esc(it.severity)}</span>
+        <span class="sv num">${it.savingKw > 0 ? '≈ ' + fmt(it.savingKw, 1) + ' kW' : ''}</span></div>
+      <p>${esc(it.detail)}</p>
+      <p class="act"><b>Do this:</b> ${esc(it.action)}</p>
+      ${it.aiWhy ? `<div class="ai">✦ ${esc(it.aiWhy)}</div>` : ''}
+      <div class="ev">${esc(it.evidence)}</div>
+    </article>`).join('') : (a.status === 'ok' ? '<div class="panel empty">✓ Nothing to improve right now.</div>' : '');
+}
+async function load(post) {
+  try { render(await (await fetch('/api/advice', { method: post ? 'POST' : 'GET' })).json()); } catch (e) { $('#summary').textContent = 'Advice service unavailable: ' + e.message; }
+}
+$('#refresh').onclick = async e => { e.target.textContent = 'Analysing…'; await load(true); e.target.textContent = 'Re-analyse now'; };
+bindHeader(); Live.connect(); load(); setInterval(load, 10000);
+</script>
+</body>
+</html>

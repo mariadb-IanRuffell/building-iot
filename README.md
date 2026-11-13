@@ -8,6 +8,8 @@ lifts, occupancy, CO₂, power, outside weather), stores it in **GridGain 9.2**,
 | **Stream monitor** | <http://localhost:8080/> | Receive rate per stream, stream health (Healthy / Degraded / Down), per-sensor status and last value, rejects, GridGain cluster and Data Streamer state. Click a sensor for its stored history. |
 | **Building overview** | <http://localhost:8080/building> | Cross-section of a 6-storey tower: zone temperatures (colour), lights, people, CO₂, power per floor, three moving lifts, roof HVAC plant, sky/sun with outside weather. Trend panel (10/30/60 min) for the building or a clicked floor. Click anything for history. |
 
+| **Efficiency advisor** | <http://localhost:8080/advisor> | Suggestions for making the building more efficient, each with evidence, the action to take and an estimated kW saving. |
+
 ## Run it
 
 ```bash
@@ -41,6 +43,18 @@ GridGain objects (created on start-up by `GridGainStore.createSchema()` with SQL
 | `INGEST_STATS` | per-stream receive rate persisted every 10 s |
 
 Retention: readings older than `RETENTION_HOURS` (default 6) are purged every minute with a SQL `DELETE`.
+
+## Efficiency advisor
+
+`Advisor` re-analyses every 30 s using one SQL aggregate over the last `ADVISOR_WINDOW_SECONDS` of `SENSOR_READING`
+(default 60 s for the compressed demo day, 900 s otherwise). Rules cover: lights on in empty zones, unoccupied
+floors held at comfort temperature, solar gain on east/west facades, over- or under-ventilation from CO₂, free cooling
+while the plant runs, surplus lifts in service, out-of-hours baseload, and silent sensors that weaken the analysis.
+
+If `ANTHROPIC_API_KEY` is set (optionally `ANTHROPIC_MODEL`, default `claude-sonnet-5-5`), Claude ranks the findings,
+adds a plain-English summary and up to three extra ideas. Only aggregated statistics and the findings are sent, never
+raw readings; on any API failure the page falls back to the rules-engine output. API: `GET /api/advice`, `POST /api/advice` (re-analyse).
+Suggestions are advisory - the simulated building does not react to them.
 
 ## Ingest API
 

@@ -236,6 +236,19 @@ public final class GridGainStore implements AutoCloseable {
         return out;
     }
 
+    /** Per-sensor aggregates over a recent window, computed inside GridGain: {avg, min, max, count}. */
+    public java.util.Map<String, double[]> aggregates(Instant since) {
+        java.util.Map<String, double[]> out = new java.util.HashMap<>();
+        try (ResultSet<SqlRow> rs = client.sql().execute(
+                "SELECT SENSOR_ID, AVG(VAL), MIN(VAL), MAX(VAL), COUNT(*) FROM SENSOR_READING WHERE TS >= ? GROUP BY SENSOR_ID", since)) {
+            while (rs.hasNext()) {
+                SqlRow r = rs.next();
+                out.put(r.stringValue(0), new double[]{r.doubleValue(1), r.doubleValue(2), r.doubleValue(3), r.longValue(4)});
+            }
+        }
+        return out;
+    }
+
     public long rowCount() {
         try (ResultSet<SqlRow> rs = client.sql().execute("SELECT COUNT(*) FROM SENSOR_READING")) {
             return rs.hasNext() ? rs.next().longValue(0) : 0;

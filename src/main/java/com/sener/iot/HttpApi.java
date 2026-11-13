@@ -24,6 +24,7 @@ public final class HttpApi implements AutoCloseable {
     private final Monitor monitor;
     private final BuildingModel model;
     private volatile Simulator simulator;
+    private volatile Advisor advisor;
 
     public HttpApi(int port, BuildingModel model, IngestPipeline pipeline, GridGainStore store, Monitor monitor) throws IOException {
         this.model = model;
@@ -40,6 +41,15 @@ public final class HttpApi implements AutoCloseable {
         server.createContext("/api/history", this::history);
         server.createContext("/api/sensors", this::sensors);
         server.createContext("/api/sim/outage", this::outage);
+    }
+
+    public void setAdvisor(Advisor a) {
+        this.advisor = a;
+        server.createContext("/api/advice", ex -> {
+            boolean refresh = "POST".equals(ex.getRequestMethod());
+            json(ex, 200, Json.write(refresh ? a.refresh() : a.advice()));
+        });
+        server.createContext("/advisor", this::staticFile);
     }
 
     public void setSimulator(Simulator s) {
@@ -235,6 +245,7 @@ public final class HttpApi implements AutoCloseable {
         String path = ex.getRequestURI().getPath();
         if (path.equals("/")) path = "/dashboard.html";
         else if (path.equals("/building")) path = "/building.html";
+        else if (path.equals("/advisor")) path = "/advisor.html";
         if (path.contains("..")) {
             json(ex, 400, "{}");
             return;

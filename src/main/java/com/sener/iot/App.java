@@ -47,6 +47,9 @@ public final class App {
         Monitor monitor = new Monitor(cfg, pipeline, store, clock);
         monitor.start();
         HttpApi api = new HttpApi(cfg.httpPort(), model, pipeline, store, monitor);
+        Advisor advisor = new Advisor(cfg, model, store, pipeline, clock);
+        advisor.start();
+        api.setAdvisor(advisor);
         api.start();
 
         ScheduledExecutorService simExec = Executors.newSingleThreadScheduledExecutor();
@@ -63,6 +66,7 @@ public final class App {
         System.out.println();
         System.out.println("  Dashboard : http://localhost:" + cfg.httpPort() + "/");
         System.out.println("  Building  : http://localhost:" + cfg.httpPort() + "/building");
+        System.out.println("  Advisor   : http://localhost:" + cfg.httpPort() + "/advisor" + (advisor.aiEnabled() ? "  (Claude enabled)" : "  (rules only; set ANTHROPIC_API_KEY for Claude)"));
         System.out.println("  Ingest    : POST http://localhost:" + cfg.httpPort() + "/api/ingest");
 
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
