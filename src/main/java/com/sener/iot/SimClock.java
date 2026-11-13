@@ -14,6 +14,11 @@ public final class SimClock {
         return (System.currentTimeMillis() - startReal) / dayMs * 24.0;
     }
 
+    /** Simulated hours that pass per real second. */
+    public double hoursPerSecond() {
+        return 24.0 * 1000.0 / dayMs;
+    }
+
     public double hourOfDay() {
         return (START_HOUR + simHoursSinceStart()) % 24.0;
     }

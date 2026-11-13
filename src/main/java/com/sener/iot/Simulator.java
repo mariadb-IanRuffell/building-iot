@@ -44,8 +44,6 @@ public final class Simulator implements Runnable {
         };
     }
 
-    private static final double[][] OCC_PROFILE = {
-        {0, .02}, {6.5, .02}, {9, .9}, {12, .92}, {12.5, .6}, {13.5, .6}, {14, .9}, {17, .9}, {19, .08}, {24, .02}};
     private static final int[] CAPACITY = {30, 48, 48, 48, 48, 36};
 
     private static final class Lift {
@@ -70,6 +68,11 @@ public final class Simulator implements Runnable {
     private double outTemp, outHum = 65, cloud = 0.3, wind = 5;
     private final double[] occ = new double[BuildingModel.FLOORS];
     private final double[] bias = new double[BuildingModel.FLOORS];
+    private final double[] shift = new double[BuildingModel.FLOORS];   // per-floor timing offset, hours
+    private final double[] crowd = new double[BuildingModel.FLOORS];   // regular staff present (smoothed)
+    private final int[] stray = new int[BuildingModel.FLOORS];         // visitors, cleaners, security, late/early staff
+    private final double[][] emptyH = new double[BuildingModel.FLOORS][2];   // simulated hours a zone has been empty
+    private double flux;                                               // people moving per real second (smoothed)
     private final double[][] temp = new double[BuildingModel.FLOORS][2];
     private final boolean[][] light = new boolean[BuildingModel.FLOORS][2];
     private final double[] hum = new double[BuildingModel.FLOORS];
@@ -90,7 +93,9 @@ public final class Simulator implements Runnable {
         outTemp = outTempTarget(h);
         for (int f = 0; f < BuildingModel.FLOORS; f++) {
             bias[f] = 0.8 + rnd.nextDouble() * 0.2;
-            occ[f] = CAPACITY[f] * profile(h) * bias[f];
+            shift[f] = (rnd.nextDouble() - 0.5) * 0.5;
+            crowd[f] = CAPACITY[f] * presence(h, shift[f]) * bias[f];
+            occ[f] = crowd[f];
             hum[f] = 42;
             co2[f] = 430;
             temp[f][0] = temp[f][1] = 21.0 + rnd.nextDouble();
@@ -106,14 +111,21 @@ public final class Simulator implements Runnable {
         silentUntil.put(streamOrSensor, System.currentTimeMillis() + seconds * 1000L);
     }
 
-    private static double profile(double h) {
-        for (int i = 1; i < OCC_PROFILE.length; i++) {
-            if (h <= OCC_PROFILE[i][0]) {
-                double[] a = OCC_PROFILE[i - 1], b = OCC_PROFILE[i];
-                return a[1] + (b[1] - a[1]) * (h - a[0]) / (b[0] - a[0]);
-            }
-        }
-        return .02;
+    private static double smooth(double e0, double e1, double x) {
+        double t = Math.max(0, Math.min(1, (x - e0) / (e1 - e0)));
+        return t * t * (3 - 2 * t);
+    }
+
+    /**
+     * Fraction of a floor's regular staff present at hour h. People arrive 07:00-09:00, some go out for lunch
+     * 12:00-14:00, and most leave between 16:40 and 19:30 (a few stay late). {@code shift} (hours) staggers floors
+     * so they do not all move in lock-step.
+     */
+    private static double presence(double h, double shift) {
+        double arrive = smooth(7.0, 9.0, h - shift);
+        double lunchOut = 0.38 * smooth(12.0, 12.8, h - shift) * (1 - smooth(13.2, 14.0, h - shift));
+        double home = 0.03 + 0.97 * (1 - smooth(16.67, 19.5, h + shift * 1.5));
+        return 0.93 * arrive * (1 - lunchOut) * home;
     }
 
     private static double outTempTarget(double h) {
@@ -203,17 +215,36 @@ public final class Simulator implements Runnable {
         outHum = Math.max(25, Math.min(99, outHum + (65 - 20 * Math.sin(2 * Math.PI * (h - 9) / 24) + 12 * cloud - outHum) * 0.02 * k + rnd.nextGaussian() * 0.1));
         wind = Math.max(0.5, Math.min(16, wind + rnd.nextGaussian() * 0.15 * k));
 
-        double p = profile(h);
+        double dsimh = dt * clock.hoursPerSecond();                    // simulated hours elapsed this tick
+        double alpha = 1 - Math.exp(-6.0 * dsimh);                     // crowd follows its target with ~10 simulated minutes lag
+        double moved = 0;
         for (int f = 0; f < BuildingModel.FLOORS; f++) {
-            double target = CAPACITY[f] * p * bias[f];
-            occ[f] += (target - occ[f]) * 0.04 * k + rnd.nextGaussian() * 0.25;
-            occ[f] = Math.max(0, Math.min(CAPACITY[f], occ[f]));
+            double target = CAPACITY[f] * presence(h, shift[f]) * bias[f];
+            double before = occ[f];
+            crowd[f] += (target - crowd[f]) * alpha + rnd.nextGaussian() * 0.2 * Math.min(1.0, crowd[f] / 3.0);
+            crowd[f] = Math.max(0, Math.min(CAPACITY[f], crowd[f]));
+
+            // a few people coming and going all day: visitors and meetings by day, cleaners/security/late staff otherwise
+            boolean core = h >= 7 && h < 19.5;
+            double arrivalsPerH = (f == 0 ? 3.0 : 1.0) * (core ? 1.0 : 0.7);
+            int maxStray = f == 0 ? 5 : 3;
+            if (stray[f] < maxStray && rnd.nextDouble() < arrivalsPerH * dsimh) stray[f]++;
+            if (stray[f] > 0 && rnd.nextDouble() < stray[f] * 1.3 * dsimh) stray[f]--;   // stay ~45 simulated minutes
+
+            occ[f] = Math.min(CAPACITY[f], crowd[f] + stray[f]);
+            moved += Math.abs(occ[f] - before);
+            int people = (int) Math.round(occ[f]);
             for (int z = 0; z < 2; z++) {
-                double zocc = occ[f] / 2;
-                // lights with hysteresis; flag a forced report on change
+                double zocc = z == 0 ? Math.ceil(people / 2.0) : Math.floor(people / 2.0);
+                // lights come on as soon as someone is in the zone and stay on 15 simulated minutes after it empties
                 boolean was = light[f][z];
-                if (!was && zocc >= 2.5) light[f][z] = true;
-                else if (was && zocc < 1.0) light[f][z] = false;
+                if (zocc >= 1) {
+                    emptyH[f][z] = 0;
+                    light[f][z] = true;
+                } else if (was) {
+                    emptyH[f][z] += dsimh;
+                    if (emptyH[f][z] >= 0.25) light[f][z] = false;
+                }
                 if (was != light[f][z]) forced.put("LIGHT-F" + f + "-" + BuildingModel.ZONES[z], true);
 
                 double gain = solar * 0.006 * gauss(h, z == 1 ? 9.5 : 15.5, 2.6);
@@ -224,6 +255,7 @@ public final class Simulator implements Runnable {
             hum[f] += (42 + 0.15 * (outHum - 60) - hum[f]) * 0.02 * k + rnd.nextGaussian() * 0.05;
             co2[f] += (430 + 14 * occ[f] - co2[f]) * 0.04 * k + rnd.nextGaussian() * 1.5;
         }
+        flux += (moved / Math.max(dt, 0.05) - flux) * Math.min(1.0, 0.3 * dt);
     }
 
     // -------------------------------------------------------------- lifts
@@ -232,9 +264,9 @@ public final class Simulator implements Runnable {
         double totalOcc = 0;
         for (double o : occ) totalOcc += o;
         // call rate grows with occupancy: roughly 0.1 .. 1.5 calls/second
-        double callsPerSec = 0.12 + totalOcc / 120.0;
+        double callsPerSec = 0.08 + totalOcc / 400.0 + 0.35 * Math.min(flux, 4.0);   // rush hours: arrivals, lunch, departures
         if (rnd.nextDouble() < callsPerSec * dt) {
-            int floor = rnd.nextDouble() < 0.4 ? 0 : rnd.nextInt(BuildingModel.FLOORS);
+            int floor = rnd.nextDouble() < 0.4 + Math.min(0.4, 0.25 * flux) ? 0 : rnd.nextInt(BuildingModel.FLOORS);
             Lift best = null;
             double bestD = 1e9;
             for (Lift l : lifts) {

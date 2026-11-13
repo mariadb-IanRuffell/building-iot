@@ -19,7 +19,7 @@ scripts/run-docker.sh        # builds the jar + image and runs the app as a cont
 ```
 
 Then open the two URLs above. The simulator starts at 07:30 on a compressed day (20 real minutes = 24 h) so
-occupancy, lights, temperatures and lift traffic visibly change; set `SIM_DAY_MINUTES=1440` for real time.
+occupancy, lights, temperatures and lift traffic visibly change (staff arrive 07:00-09:00, some go out for lunch 12:00-14:00, most leave 16:40-19:30, and a few visitors/cleaners/late staff come and go the rest of the time; lift traffic peaks with those flows); set `SIM_DAY_MINUTES=1440` for real time.
 
 The app container (`building-iot-app`) and the GridGain containers share the Docker network `iot-net`; the app reaches the
 nodes by container name (`gg9-iot:10800`, ...). It restarts automatically with Docker. Configure it with environment
