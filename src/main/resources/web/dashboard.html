@@ -56,7 +56,7 @@
     <div class="kpi"><div class="l">Messages received</div><div class="v num" id="kTotal">—</div></div>
     <div class="kpi"><div class="l">Rejected</div><div class="v num" id="kRej">—</div></div>
     <div class="kpi"><div class="l">Sensors reporting</div><div class="v num"><span id="kFresh">—</span><small id="kSensors"></small></div></div>
-    <div class="kpi"><div class="l">Rows in GridGain</div><div class="v num" id="kRows">—</div></div>
+    <div class="kpi"><div class="l">Rows: memory · disk</div><div class="v num"><span id="kRows">—</span><small id="kDisk"></small></div></div>
     <div class="kpi"><div class="l">Streamer backlog</div><div class="v num"><span id="kLag">—</span><small>items</small></div></div>
   </div>
 
@@ -89,7 +89,7 @@
   -H 'Content-Type: application/json' \
   -d '[{"sensorId":"TEMP-F2-W","value":23.4},
        {"sensorId":"OUT-TEMP","value":7.9,"ts":"2026-11-13T09:30:00Z"}]'</pre>
-        <div style="color:var(--muted);font-size:12.5px;margin-top:8px">Readings flow HTTP → validate → GridGain Data Streamer → <code>SENSOR_READING</code> / <code>SENSOR_LATEST</code> tables. Click any sensor row to chart its stored history.</div>
+        <div style="color:var(--muted);font-size:12.5px;margin-top:8px">Readings flow HTTP → validate → GridGain Data Streamer → <code>SENSOR_READING_HOT</code> (memory, 24 h), <code>SENSOR_READING</code> (disk, all history) and <code>SENSOR_LATEST</code>. Click any sensor row to chart its stored history.</div>
       </section>
     </div>
   </div>
@@ -157,6 +157,7 @@ function update(d) {
   $('#kFresh').textContent = t.fresh; $('#kSensors').textContent = '/ ' + t.sensors;
   $('#kFresh').style.color = t.fresh < t.sensors ? 'var(--warn)' : 'var(--good)';
   $('#kRows').textContent = c.rows < 0 ? '…' : nf0.format(c.rows);
+  $('#kDisk').textContent = '· ' + (c.diskRows < 0 ? '…' : nf0.format(c.diskRows));
   $('#kLag').textContent = nf0.format(c.queueLag);
 
   d.streams.forEach(s => {
@@ -185,10 +186,11 @@ function update(d) {
   $('#gg').innerHTML = [
     ['Status', c.connected ? '<span style="color:var(--good)">connected</span>' : '<span style="color:var(--bad)">disconnected</span>'],
     ['Nodes', c.nodes.join(', ') || '—'],
-    ['Data streamers', c.streamers ? '<span style="color:var(--good)">running</span> (SENSOR_READING, SENSOR_LATEST)' : '<span style="color:var(--bad)">stopped</span>'],
+    ['Data streamers', c.streamers ? '<span style="color:var(--good)">running</span> (memory + disk + latest)' : '<span style="color:var(--bad)">stopped</span>'],
     ['Items submitted', nf0.format(c.submitted)],
     ['Dropped / restarts', `${c.dropped} / ${c.restarts}`],
-    ['Stored readings', c.rows < 0 ? '…' : nf0.format(c.rows)],
+    ['In memory (last ' + c.retentionHours + ' h)', c.rows < 0 ? '…' : nf0.format(c.rows)],
+    ['On disk (all history)', c.diskRows < 0 ? '…' : nf0.format(c.diskRows)],
     ['Uptime', Math.floor(d.uptimeSec / 60) + ' min ' + (d.uptimeSec % 60) + ' s'],
     ['Last error', c.lastError ? `<span style="color:var(--warn)">${c.lastError}</span>` : 'none']
   ].map(([a, b]) => `<span>${a}</span><span>${b}</span>`).join('');

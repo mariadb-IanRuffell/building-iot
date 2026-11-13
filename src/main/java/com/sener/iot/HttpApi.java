@@ -192,8 +192,10 @@ public final class HttpApi implements AutoCloseable {
         int minutes = Math.max(1, Math.min(cfgMaxMinutes(), parseInt(q.get("minutes"), 60)));
         try {
             long t0 = System.nanoTime();
-            List<double[]> pts = store.history(id, Instant.now().minusSeconds(minutes * 60L), parseInt(q.get("points"), 300));
+            boolean mem = minutes <= store.retentionMinutes();
+            List<double[]> pts = store.history(id, Instant.now().minusSeconds(minutes * 60L), parseInt(q.get("points"), 300), mem);
             Map<String, Object> out = new LinkedHashMap<>();
+            out.put("tier", mem ? "memory" : "disk");
             out.put("sensorId", id);
             out.put("name", s.name());
             out.put("unit", s.unit());
@@ -208,7 +210,7 @@ public final class HttpApi implements AutoCloseable {
     }
 
     private int cfgMaxMinutes() {
-        return 24 * 60;
+        return 7 * 24 * 60;
     }
 
     private void sensors(HttpExchange ex) throws IOException {

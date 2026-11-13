@@ -145,7 +145,7 @@ const History = {
     bg.onclick = e => { if (e.target === bg) this.close(); };
     document.addEventListener('keydown', e => { if (e.key === 'Escape') this.close(); });
     const rng = $('#hRange', bg);
-    [[15, '15 min'], [60, '1 hour'], [180, '3 hours'], [360, '6 hours']].forEach(([m, l]) => {
+    [[15, '15 min'], [60, '1 hour'], [360, '6 hours'], [1440, '24 hours'], [4320, '3 days'], [10080, '7 days']].forEach(([m, l]) => {
       const b = document.createElement('button'); b.textContent = l; b.dataset.m = m;
       b.onclick = () => { this.minutes = m; this.load(); }; rng.appendChild(b);
     });
@@ -161,7 +161,7 @@ const History = {
       const r = await (await fetch(`/api/history?sensorId=${encodeURIComponent(this.id)}&minutes=${this.minutes}&points=400`)).json();
       if (r.error) throw new Error(r.error);
       const isLight = r.type === 'LIGHTING';
-      $('#hSub', this.bg).textContent = `${r.id || r.sensorId} · SQL on SENSOR_READING returned ${r.points.length} points in ${r.queryMs} ms (${r.unit})`;
+      $('#hSub', this.bg).textContent = `${r.id || r.sensorId} · from the ${r.tier === 'memory' ? 'in-memory table SENSOR_READING_HOT' : 'on-disk table SENSOR_READING (aggregated in SQL)'}: ${r.points.length} points in ${r.queryMs} ms (${r.unit})`;
       lineChart(el, { series: [{ name: r.name, color: SC[r.type] || '#4cc9f0', points: r.points }], band: !isLight, stepped: isLight,
         yFmt: v => isLight ? (v >= .5 ? 'ON' : 'OFF') : fmt(v, r.type === 'OCCUPANCY' || r.type === 'AIR_QUALITY' ? 0 : 1),
         yMin: isLight ? -0.1 : null, yMax: isLight ? 1.1 : null });

@@ -16,7 +16,7 @@ public record Config(List<String> addresses, int httpPort, boolean simEnabled, b
                 !"direct".equalsIgnoreCase(env("SIM_MODE", "http")),
                 Double.parseDouble(env("SIM_SCALE", "1.0")),
                 Double.parseDouble(env("SIM_DAY_MINUTES", "20")),
-                Integer.parseInt(env("RETENTION_HOURS", "6")),
+                Integer.parseInt(env("RETENTION_HOURS", "24")),
                 Integer.parseInt(env("GG_PARTITIONS", "16")),
                 Integer.parseInt(env("GG_REPLICAS", "1")));
     }

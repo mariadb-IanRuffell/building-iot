@@ -3,6 +3,7 @@
 #   GG_NODES     number of nodes                       (default: 3)
 #   GG_LICENSE   path to your GridGain license JSON    (default: ~/gridgain/gridgain-license.json)
 #   GG_IMAGE     docker image                          (default: gridgain/gridgain9:9.2.0-b1)
+#   GG_MEM_BYTES per-node size of the in-memory tier   (default: 1 GiB)
 #   GG_CONTAINER container name prefix; node1 uses it as-is, others get -n2, -n3 ... (default: gg9-iot)
 # Host ports: node i -> client 10800+(i-1), REST 10300+(i-1).
 # Run the app with: GG_ADDRESSES=127.0.0.1:10800,127.0.0.1:10801,127.0.0.1:10802 GG_REPLICAS=3 scripts/run.sh
@@ -13,12 +14,16 @@ NAME="${GG_CONTAINER:-gg9-iot}"
 NODES="${GG_NODES:-3}"
 LICENSE="${GG_LICENSE:-$HOME/gridgain/gridgain-license.json}"
 RPORT=10300
+MEM_BYTES="${GG_MEM_BYTES:-1073741824}"   # in-memory tier size per node (1 GiB holds ~24 h at ~25 msg/s)
 
 [ -f "$LICENSE" ] || { echo "License file not found: $LICENSE (set GG_LICENSE)"; exit 1; }
 
 # The columnar storage engine is not used by this app. Its native library crashes the 9.2.0-b1
 # image on Apple-Silicon Docker (SIGSEGV in libcolumnarjni), so the jar is removed before start-up.
 PRE='rm -f /opt/gridgain/lib/gridgain-columnar*.jar;'
+
+NET=iot-net
+docker network inspect $NET >/dev/null 2>&1 || docker network create $NET >/dev/null
 
 cname() { [ "$1" = 1 ] && echo "$NAME" || echo "$NAME-n$1"; }
 
@@ -27,13 +32,15 @@ for i in $(seq 1 "$NODES"); do
   if docker ps -a --format '{{.Names}}' | grep -qx "$c"; then
     echo "Container $c exists - starting it"; docker start "$c" >/dev/null; continue
   fi
+  # storage profiles: default = disk (aipersist), aimem_hot = in-memory tier for the last 24 h of readings
+  STORAGE='storage { profiles = [{name=default, engine=aipersist}, {name=aimem_hot, engine=aimem, initSizeBytes=268435456, maxSizeBytes='$MEM_BYTES'}] }'
   if [ "$i" = 1 ]; then
-    cfg=''
+    cfg="printf 'ignite { $STORAGE }\n' > /opt/gridgain/etc/gridgain-config.conf;"
   else
-    N1=$(docker inspect "$NAME" -f '{{.NetworkSettings.IPAddress}}')
-    cfg="printf 'ignite { network { port=3344, nodeFinder { netClusterNodes=[\"$N1:3344\"] } } }\n' > /opt/gridgain/etc/gridgain-config.conf;"
+    N1="$NAME"      # resolved by Docker DNS on the shared network
+    cfg="printf 'ignite { network { port=3344, nodeFinder { netClusterNodes=[\"$N1:3344\"] } }, $STORAGE }\n' > /opt/gridgain/etc/gridgain-config.conf;"
   fi
-  docker run -d --name "$c" -p "$((10800 + i - 1)):10800" -p "$((10300 + i - 1)):10300" \
+  docker run -d --name "$c" --network $NET -p "$((10800 + i - 1)):10800" -p "$((10300 + i - 1)):10300" \
     -e JVM_MAX_MEM=2g -e JVM_MIN_MEM=2g --entrypoint sh "$IMAGE" -c \
     "$PRE $cfg exec /usr/local/bin/docker-entrypoint.sh --node-name node$i" >/dev/null
   echo "Started $c"

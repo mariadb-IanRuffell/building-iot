@@ -20,6 +20,7 @@ public final class Monitor implements AutoCloseable {
     private final ScheduledExecutorService ses = Executors.newScheduledThreadPool(2);
 
     private volatile long rows = -1;
+    private volatile long diskRows = -1;
     private volatile List<String> nodes = List.of();
     private volatile boolean connected;
     private volatile String lastJson = "{}";
@@ -40,12 +41,13 @@ public final class Monitor implements AutoCloseable {
         }), 1, 1, TimeUnit.SECONDS);
         ses.scheduleAtFixedRate(() -> guard(this::persistStats), 10, 10, TimeUnit.SECONDS);
         ses.scheduleAtFixedRate(() -> guard(() -> {
-            rows = store.rowCount();
+            rows = store.hotRowCount();
             nodes = store.connectedNodes();
             connected = !nodes.isEmpty();
         }), 0, 15, TimeUnit.SECONDS);
-        ses.scheduleAtFixedRate(() -> guard(() -> store.purgeOlderThan(Instant.now().minusSeconds(cfg.retentionHours() * 3600L))),
+        ses.scheduleAtFixedRate(() -> guard(() -> store.purgeHotOlderThan(Instant.now().minusSeconds(cfg.retentionHours() * 3600L))),
                 60, 60, TimeUnit.SECONDS);
+        ses.scheduleAtFixedRate(() -> guard(() -> diskRows = store.diskRowCount()), 0, 60, TimeUnit.SECONDS);
         // cheap liveness check for the cluster connection
         ses.scheduleAtFixedRate(() -> guard(() -> {
             nodes = store.connectedNodes();
@@ -97,6 +99,8 @@ public final class Monitor implements AutoCloseable {
         cl.put("connected", connected);
         cl.put("nodes", nodes);
         cl.put("rows", rows);
+        cl.put("diskRows", diskRows);
+        cl.put("retentionHours", cfg.retentionHours());
         cl.put("streamers", store.streamersRunning());
         cl.put("queueLag", store.queueLag());
         cl.put("submitted", store.submitted.get());

@@ -34,6 +34,8 @@ public final class App {
         store.registerSensors(model.sensors());
         System.out.println("Schema ready. Cluster nodes: " + store.connectedNodes());
 
+        long refilled = store.backfillHotFromDisk();
+        if (refilled > 0) System.out.println("In-memory tier was empty: refilled " + refilled + " rows from the disk history");
         IngestPipeline pipeline = new IngestPipeline(model, store);
         store.loadLatest().forEach(pipeline::seed);
         long[] n = {0};

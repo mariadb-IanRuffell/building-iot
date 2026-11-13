@@ -14,20 +14,27 @@ lifts, occupancy, CO₂, power, outside weather), stores it in **GridGain 9.2**,
 
 ```bash
 scripts/start-cluster.sh     # 3-node GridGain 9.2 cluster in Docker + init (needs your license file; GG_NODES=1 for one node)
-scripts/run.sh               # builds the jar if needed, starts server + embedded simulator
+scripts/run-docker.sh        # builds the jar + image and runs the app as a container (http://localhost:8080)
+# or, for development, without Docker:  scripts/run.sh
 ```
 
 Then open the two URLs above. The simulator starts at 07:30 on a compressed day (20 real minutes = 24 h) so
 occupancy, lights, temperatures and lift traffic visibly change; set `SIM_DAY_MINUTES=1440` for real time.
+
+The app container (`building-iot-app`) and the GridGain containers share the Docker network `iot-net`; the app reaches the
+nodes by container name (`gg9-iot:10800`, ...). It restarts automatically with Docker. Configure it with environment
+variables when calling the script, e.g. `ANTHROPIC_API_KEY=... SIM_SCALE=5 scripts/run-docker.sh`. Do not run it together
+with `scripts/run.sh` - both use port 8080 (`HTTP_PORT` changes the host port).
 
 ## Architecture
 
 ```
  sensors / gateways ──HTTP POST /api/ingest──►  IngestPipeline ──► live cache + trend ring + rate counters
  (embedded simulator                                │
-  posts the same way)                               └─► GridGain Data Streamer (2 long-lived streamers)
-                                                          ├─ SENSOR_READING  full time series
-                                                          └─ SENSOR_LATEST   last value per sensor (upsert)
+  posts the same way)                               └─► GridGain Data Streamer (3 long-lived streamers)
+                                                          ├─ SENSOR_READING_HOT  last 24 h        (memory)
+                                                          ├─ SENSOR_READING      all history      (disk)
+                                                          └─ SENSOR_LATEST       last value/sensor
  browser ◄── SSE /api/live (1 Hz) ── Monitor        SQL ◄── /api/history  (history popups)
  browser ◄── /api/trends (in-memory 10 s buckets, re-seeded from GridGain on restart)
 ```
@@ -36,13 +43,19 @@ GridGain objects (created on start-up by `GridGainStore.createSchema()` with SQL
 
 | Object | Purpose |
 |---|---|
-| zone `IOT_ZONE` | 16 partitions, 3 replicas via `run.sh` (`GG_PARTITIONS`, `GG_REPLICAS`; the app also ALTERs an existing zone to match) |
+| zone `IOT_ZONE` (disk, `default` profile) | reference data, latest values, full history; 16 partitions, 3 replicas via `run.sh` (`GG_PARTITIONS`, `GG_REPLICAS`; the app also ALTERs existing zones to match) |
+| zone `IOT_MEM_ZONE` (memory, `aimem_hot` profile) | the hot tier; same partitions/replicas |
 | `SENSOR` | sensor registry |
-| `SENSOR_READING (SENSOR_ID, TS, VAL, ATTR)` | time series, `COLOCATE BY (SENSOR_ID)`, sorted indexes on `(SENSOR_ID, TS)` and `TS` |
+| `SENSOR_READING_HOT (SENSOR_ID, TS, VAL, ATTR)` | **last 24 h, in memory.** Serves the advisor, trend seeding and history popups up to 24 h |
+| `SENSOR_READING (SENSOR_ID, TS, VAL, ATTR)` | **all history, on disk, never purged.** Serves history popups beyond 24 h (3 d / 7 d), aggregated per minute/hour inside GridGain |
 | `SENSOR_LATEST` | latest value per sensor |
 | `INGEST_STATS` | per-stream receive rate persisted every 10 s |
 
-Retention: readings older than `RETENTION_HOURS` (default 6) are purged every minute with a SQL `DELETE`.
+Both reading tables are colocated by `SENSOR_ID` with sorted `(SENSOR_ID, TS)` indexes, and each reading is written to
+both through its own Data Streamer. **Retention:** `RETENTION_HOURS` (default 24) applies to the in-memory table only - older
+rows are deleted from memory every minute and stay on disk. If memory is lost (all nodes restarted) the app refills the
+hot table from disk on start-up. The memory tier needs a storage profile on every node; `start-cluster.sh` configures
+`aimem_hot` (`GG_MEM_BYTES`, default 1 GiB per node; ~24 h at the default ~25 msg/s needs roughly 0.4-0.5 GiB per node with 3 replicas).
 
 ## Efficiency advisor
 
@@ -79,7 +92,7 @@ To run the simulator as a separate process (a stand-in for real gateways): `java
 | `SIM_ENABLED` / `SIM_MODE` | `true` / `http` | `direct` bypasses HTTP and calls the pipeline |
 | `SIM_SCALE` | `1.0` | message-rate multiplier (≈22 msg/s at 1.0; try 20 for load) |
 | `SIM_DAY_MINUTES` | `20` | real minutes per simulated day |
-| `RETENTION_HOURS` | `6` | |
+| `RETENTION_HOURS` | `24` | hours kept in the in-memory tier (disk keeps everything) |
 
 Demo helper: the **Simulate outage** button on each stream card (or `POST /api/sim/outage?target=LIFT&seconds=30`)
 silences a stream so you can watch it go Degraded/Down and recover. The simulator also randomly silences single
